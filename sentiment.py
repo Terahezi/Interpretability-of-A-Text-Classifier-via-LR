@@ -1,5 +1,9 @@
 #!/bin/python
 
+from operator import itemgetter
+import matplotlib.pyplot as plt
+import numpy as np
+
 def read_files(tarfname):
     """Read the training and development data from the sentiment tar file.
     The returned object contains various fields that store sentiment data, such as:
@@ -152,6 +156,69 @@ def write_basic_kaggle_file(tsvfile, outfname):
             f.write("POSITIVE")
             f.write("\n")
     f.close()
+    
+    
+def classifier_explanation(cls, sentiment, encoded_sentence, top_n = 5):
+    '''return the coefficients and features of the classifier'''
+    coefficients = cls.coef_  # parameter array 1 x Num_features
+    tokens_list = sentiment.count_vect.get_feature_names() # feature list
+    # n = len(tokens_list)
+    
+    sentence = list(sentiment.count_vect.inverse_transform(encoded_sentence)[0])
+        
+    # assure that the input is a list
+    assert isinstance(sentence, list)
+    sentence_len = len(sentence)
+    
+    try:
+        assert sentence_len != 0
+    except:
+        print('Nothing is input')
+        
+    sentence_index = []
+    for i in range(sentence_len):
+        sentence_index.append(tokens_list.index(sentence[i]))
+    sentence_coefficient = coefficients[0, sentence_index]
+    
+    assert sentence_len == len(sentence_coefficient)
+        
+    prediction_result_index = list(cls.predict(encoded_sentence))[0]
+    list_labels = list(sentiment.target_labels)
+    prediction_result = list_labels[prediction_result_index]
+    prob_prediction = cls.predict_proba(encoded_sentence)[0, prediction_result_index]
+    
+    if prediction_result_index == 0:
+        do_we_reverse = False
+    else:
+        do_we_reverse = True
+        
+    if sentence_len <= top_n:
+        top_coef_index = sorted(range(sentence_len), key = lambda x: sentence_coefficient[x],\
+                          reverse = do_we_reverse)
+        top_words = itemgetter(*top_coef_index)(sentence)
+        top_coef = sorted(sentence_coefficient, reverse = do_we_reverse)
+        print('Hi, humans! The text is {} with probability {} due to these top {} relevant words {} with their contribution as {}'\
+              .format(prediction_result, prob_prediction, sentence_len, top_words, top_coef))
+    else:
+        # only print out the top top_n words
+        top_coef_index = sorted(range(sentence_len), key = lambda x: sentence_coefficient[x],\
+                          reverse = do_we_reverse)[:top_n + 1]
+        top_words = itemgetter(*top_coef_index)(sentence)
+        top_coef = sorted(sentence_coefficient, reverse = do_we_reverse)[:top_n + 1]
+        print('Hi, humans! The text is {} with probability {} due to these top {} relevant words {} with their contribution as {}'\
+              .format(prediction_result, prob_prediction, top_n, top_words, top_coef))
+        
+    print('Let\'s see it in a bar chart!')
+    plt.figure
+    plt.barh(top_words, top_coef)
+    if do_we_reverse:
+        plt.xlim(0, np.max(coefficients))
+    else:
+        plt.xlim(0, np.min(coefficients))
+    plt.title('Weights assigned among different features')
+    plt.ylabel('token')
+    plt.xlabel('weight')
+        
 
 if __name__ == "__main__":
     print("Reading data")
@@ -160,16 +227,12 @@ if __name__ == "__main__":
     print("\nTraining classifier")
     import classify
     cls = classify.train_classifier(sentiment.trainX, sentiment.trainy, C = 0.625)
-    print("\nEvaluating")
-    classify.evaluate(sentiment.trainX, sentiment.trainy, cls, 'train')
-    classify.evaluate(sentiment.devX, sentiment.devy, cls, 'dev')
+    
+    # make prediction on a new sample and then try to make explanations
+    index = 1  # randomly select an index
+    encoded_sentence = sentiment.trainX[index, :]
+    # sentence = sentiment.train_data[index].split()
+    
+    classifier_explanation(cls, sentiment, encoded_sentence, top_n = 10)
+    
 
-    print("\nReading unlabeled data")
-    unlabeled = read_unlabeled(tarfname, sentiment)
-    print("Writing predictions to a file")
-    write_pred_kaggle_file(unlabeled, cls, "data/sentiment-pred.csv", sentiment)
-    #write_basic_kaggle_file("data/sentiment-unlabeled.tsv", "data/sentiment-basic.csv")
-
-    # You can't run this since you do not have the true labels
-    # print "Writing gold file"
-    # write_gold_kaggle_file("data/sentiment-unlabeled.tsv", "data/sentiment-gold.csv")
